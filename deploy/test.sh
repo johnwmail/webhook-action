@@ -1,74 +1,42 @@
 #!/usr/bin/env bash
-# Manual smoke test for webhook-action using curl.
-#
-# Sends signed and unsigned requests to a running webhook-action server and
-# checks the HTTP status codes.
+# Send a signed test webhook to webhook-action.
 #
 # Usage:
-#   ./deploy/test.sh                     # uses ~/.config/webhook-action/webhook-action.env
-#   SECRET=mysecret ./deploy/test.sh     # override the secret
-#   URL=http://host:9000/action/webhook ./deploy/test.sh   # override the endpoint
+#   ./deploy/test.sh KEY=VALUE [KEY=VALUE ...]
+#
+# Examples:
+#   ./deploy/test.sh tag=v1.2.3
+#   ./deploy/test.sh tag=v1.2.3 region=us-east-1
+#
+# How it works:
+#   Each KEY=VALUE argument becomes a JSON field in the webhook payload.
+#   webhook-action injects every field into the deploy script's environment as
+#   DEPLOY_PARAM_<KEY> (uppercased), so `tag=v1.2.3` arrives in deploy.sh as
+#   $DEPLOY_PARAM_TAG.
+#
+# Overrides:
+#   SECRET=...  URL=http://host:9000/action/webhook ./deploy/test.sh tag=v1.2.3
+#   (defaults: secret from ~/.config/webhook-action/webhook-action.env,
+#              URL http://127.0.0.1:9000/action/webhook)
 set -euo pipefail
 
-BASE_URL="${URL:-http://127.0.0.1:9000/action/webhook}"
-SECRET="${SECRET:-}"
-
-if [ -z "${SECRET}" ] && [ -f "${HOME}/.config/webhook-action/webhook-action.env" ]; then
-  SECRET="$(sed -n 's/^WEBHOOK_SECRET=//p' "${HOME}/.config/webhook-action/webhook-action.env")"
+if [ "$#" -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  sed -n '2,$s/^# \{0,1\}//p' "$0"
+  exit 0
 fi
 
-if [ -z "${SECRET}" ] || [ "${SECRET}" = "change-me-to-a-64-char-hex-secret" ]; then
-  echo "[test] error: set SECRET (or WEBHOOK_SECRET in your webhook-action.env)" >&2
-  exit 1
-fi
+URL="${URL:-http://127.0.0.1:9000/action/webhook}"
+SECRET="${SECRET:-$(sed -n 's/^WEBHOOK_SECRET=//p' "$HOME/.config/webhook-action/webhook-action.env")}"
+[ -n "${SECRET}" ] || { echo "error: set SECRET or WEBHOOK_SECRET in webhook-action.env" >&2; exit 1; }
 
-# Demo payload. Every key is forwarded to the deploy script as an environment
-# variable (DEPLOY_PARAM_<UPPERCASED_KEY>), so a valid delivery sets for example:
-#   DEPLOY_PARAM_REF=refs/tags/v1.2.3
-#   DEPLOY_PARAM_TAG=v1.2.3
-#   DEPLOY_PARAM_ACTOR=octocat
-#   DEPLOY_PARAM_ACTION=published
-#   DEPLOY_PARAM_REPOSITORY=webhook-action
-#   DEPLOY_PARAM_ENVIRONMENT=production
-#   DEPLOY_PARAM_REGION=ap-southeast-1
-#   DEPLOY_PARAM_FORCE_DEPLOY=true
-body='{"ref":"refs/tags/v1.2.3","tag":"v1.2.3","actor":"octocat","action":"published","repository":"webhook-action","environment":"production","region":"ap-southeast-1","force_deploy":true}'
+parts=()
+for kv in "$@"; do parts+=("\"${kv%%=*}\":\"${kv#*=}\""); done
+body="{$(IFS=,; echo "${parts[*]}")}"
+echo "-> POST $URL"
+echo "-> payload: $body (deploy.sh receives DEPLOY_PARAM_* for each field)"
 
-sign() {
-  printf '%s' "$1" | openssl dgst -sha256 -hmac "${SECRET}" | awk '{print $2}'
-}
-
-status() {
-  curl -s -o /dev/null -w '%{http_code}' "$@"
-}
-
-pass=0
-fail=0
-
-check() {
-  local name="$1" want="$2" got="$3"
-  if [ "${got}" = "${want}" ]; then
-    pass=$((pass + 1))
-    printf 'PASS  %-20s got %s\n' "${name}" "${got}"
-  else
-    fail=$((fail + 1))
-    printf 'FAIL  %-20s want %s got %s\n' "${name}" "${want}" "${got}"
-  fi
-}
-
-sig="sha256=$(sign "${body}")"
-check "valid signature" 200 "$(status -X POST "${BASE_URL}" -H 'Content-Type: application/json' -H "X-Hub-Signature-256: ${sig}" -d "${body}")"
-
-check "missing signature" 401 "$(status -X POST "${BASE_URL}" -H 'Content-Type: application/json' -d "${body}")"
-
-check "wrong signature" 403 "$(status -X POST "${BASE_URL}" -H 'Content-Type: application/json' -H "X-Hub-Signature-256: sha256=$(sign wrong)" -d "${body}")"
-
-bad_json='{"tag": "v1.2.3"'
-bad_sig="sha256=$(sign "${bad_json}")"
-check "invalid json" 400 "$(status -X POST "${BASE_URL}" -H 'Content-Type: application/json' -H "X-Hub-Signature-256: ${bad_sig}" -d "${bad_json}")"
-
-check "GET not allowed" 405 "$(status "${BASE_URL}")"
-
-echo
-echo "[test] ${pass} passed, ${fail} failed"
-[ "${fail}" -eq 0 ]
+sig="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')"
+curl -i -X POST "$URL" \
+  -H 'Content-Type: application/json' \
+  -H "X-Hub-Signature-256: $sig" \
+  -d "$body"
