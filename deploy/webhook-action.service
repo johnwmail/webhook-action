@@ -1,0 +1,41 @@
+# systemd USER unit for webhook-action
+#
+# Run with the per-user systemd manager (no root or /etc changes needed):
+#   install -Dm 0644 webhook-action.service ~/.config/systemd/user/webhook-action.service
+#   install -Dm 0644 webhook-action.env     ~/.config/webhook-action/webhook-action.env
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now webhook-action
+#
+# Start at boot and keep running after logout:
+#   loginctl enable-linger $USER
+#
+# Check status / logs:
+#   systemctl --user status webhook-action
+#   journalctl --user -u webhook-action -f
+#
+# Tangling example (GitHub webook target):
+#   http://127.0.0.1:9000/action/webhook
+#
+# Remote endpoints normally sit behind a reverse proxy (nginx/caddy) that
+# adds TLS, so the service only binds to localhost by default.
+[Unit]
+Description=GitHub Webhook Action Deploy Server
+Documentation=https://docs.github.com/en/webhooks
+
+[Service]
+Type=simple
+# %h expands to the owner's home directory.
+WorkingDirectory=%h/webhook-action
+EnvironmentFile=%h/.config/webhook-action/webhook-action.env
+ExecStart=%h/bin/webhook-action
+Restart=on-failure
+RestartSec=5
+
+# Light hardening that works inside the user manager.
+# (No User=/Group= here: a --user service already runs as the logged-in user,
+#  and ProtectSystem=/ProtectHome= are not applicable in user instances.)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

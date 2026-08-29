@@ -1,0 +1,24 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - gocritic
+    - revive
+    - gosec
+  settings:
+    gosec:
+      excludes:
+        # 以下皆為誤報：腳本路徑與監聽位址均由部署者以環境變數設定，而非來自 webhook 請求內容。
+        - G204 # exec.Command 的腳本路徑 (DEPLOY_SCRIPT_PATH) 由部署者控制
+        - G702 # 命令注入 taint 分析誤報 (同上)
+        - G706 # log 注入誤報 (listenAddr 由 LISTEN_ADDR 環境變數設定)
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocritic
+          - gosec

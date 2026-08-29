@@ -26,6 +26,12 @@ go.work.sum
 
 # env file
 .env
+.env.*
+!.env.example
+
+# Local build outputs
+/bin/
+/webhook-action
 
 # Editor/IDE
 # .idea/
