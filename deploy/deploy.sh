@@ -2,16 +2,16 @@
 # Example deploy script run by webhook-action.
 #
 # The webhook server forwards every JSON field of the GitHub payload as an
-# environment variable named DEPLOY_PARAM_<UPPERCASED_KEY>, e.g.:
+# environment variable named WEBHOOK_PARAM_<UPPERCASED_KEY>, e.g.:
 #   { "ref": "refs/tags/v1.2.3", "tag": "v1.2.3" }
-# becomes DEPLOY_PARAM_REF and DEPLOY_PARAM_TAG inside this script.
+# becomes WEBHOOK_PARAM_REF and WEBHOOK_PARAM_TAG inside this script.
 #
 # Tailor everything below to your own project.
 set -euo pipefail
 
-TAG="${DEPLOY_PARAM_TAG:-}"
-REF="${DEPLOY_PARAM_REF:-}"
-ACTOR="${DEPLOY_PARAM_ACTOR:-unset}"
+TAG="${WEBHOOK_PARAM_TAG:-}"
+REF="${WEBHOOK_PARAM_REF:-}"
+ACTOR="${WEBHOOK_PARAM_ACTOR:-unset}"
 
 echo "[deploy] started by '${ACTOR}' tag='${TAG}' ref='${REF}'"
 

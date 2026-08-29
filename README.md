@@ -2,7 +2,7 @@
 
 A small self-hosted GitHub webhook receiver written in Go. It verifies incoming
 webhook deliveries with HMAC-SHA256, maps every JSON field of the payload onto
-`DEPLOY_PARAM_*` environment variables, and then asynchronously runs your deploy
+`WEBHOOK_PARAM_*` environment variables, and then asynchronously runs your deploy
 script.
 
 No external dependencies — just the Go standard library.
@@ -13,7 +13,7 @@ No external dependencies — just the Go standard library.
 2. The listener validates the `X-Hub-Signature-256` header against
    `WEBHOOK_SECRET`. Requests with a missing or wrong signature are rejected.
 3. The JSON payload is parsed dynamically and each key is injected into the
-   deploy script's environment as `DEPLOY_PARAM_<UPPERCASED_KEY>`.
+   deploy script's environment as `WEBHOOK_PARAM_<UPPERCASED_KEY>`.
 
    For example, a payload like:
 
@@ -25,8 +25,8 @@ No external dependencies — just the Go standard library.
    }
    ```
 
-   becomes `DEPLOY_PARAM_REF`, `DEPLOY_PARAM_TAG`, and
-   `DEPLOY_PARAM_ACTOR` for the script.
+   becomes `WEBHOOK_PARAM_REF`, `WEBHOOK_PARAM_TAG`, and
+   `WEBHOOK_PARAM_ACTOR` for the script.
 4. The deploy script runs asynchronously so the webhook returns immediately.
 
 ## Configuration
@@ -36,7 +36,7 @@ The server is configured entirely through environment variables:
 | Variable             | Required | Default           | Description                                    |
 | -------------------- | -------- | ----------------- | ---------------------------------------------- |
 | `WEBHOOK_SECRET`     | yes      | —                 | The webhook secret used to verify signatures.  |
-| `DEPLOY_SCRIPT_PATH` | yes      | —                 | Absolute path to the script executed on deploy.|
+| `WEBHOOK_SCRIPT_PATH` | yes      | —                 | Absolute path to the script executed on deploy.|
 | `LISTEN_ADDR`        | no       | `127.0.0.1:9000`  | Address the HTTP server binds to.              |
 
 Generate a secret with:
@@ -56,7 +56,7 @@ go test -race ./...
 
 ```sh
 WEBHOOK_SECRET=$(openssl rand -hex 32) \
-DEPLOY_SCRIPT_PATH=/path/to/deploy.sh \
+WEBHOOK_SCRIPT_PATH=/path/to/deploy.sh \
 ./webhook-action
 ```
 
@@ -155,8 +155,26 @@ The service binds to localhost only, so place it behind a reverse proxy
 [`deploy/webhook-action.service`](deploy/webhook-action.service) for a template.
 
 On every valid delivery, the payload fields are injected into the script
-environment as `DEPLOY_PARAM_*` variables. An example script lives at
+environment as `WEBHOOK_PARAM_*` variables. An example script lives at
 [`deploy/deploy.sh`](deploy/deploy.sh).
+
+### Trigger from another repo with GitHub Actions
+
+If you keep your app in a separate repository, you can send the signed webhook
+automatically from its CI. The repo ships a ready-made workflow at
+[`deploy/webhook-action.yml`](deploy/webhook-action.yml) — copy it into the app
+repo at `.github/workflows/webhook-action.yml` and set two repository secrets:
+
+| Secret             | Value                                                        |
+| ------------------ | ------------------------------------------------------------ |
+| `WEBHOOK_HOST`     | Your webhook-action endpoint URL, e.g. `https://deploy.example.com/action/webhook` |
+| `WEBHOOK_SECRET`   | The same secret as this server's `WEBHOOK_SECRET`            |
+
+On `workflow_dispatch` it builds a JSON payload, signs it with
+`WEBHOOK_SECRET`, and `POST`s it with `X-Hub-Signature-256`. Every payload field
+arrives in your deploy script as a `WEBHOOK_PARAM_*` variable (e.g.
+`WEBHOOK_PARAM_TAG` for the tag being deployed). Add `on: push: tags: ['v*']`
+to auto-trigger it on tag pushes.
 
 ## Security notes
 

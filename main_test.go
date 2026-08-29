@@ -122,8 +122,8 @@ func TestHandleWebhookSuccessTriggersDeploy(t *testing.T) {
 func TestExecuteDeployPassesParamsAsEnv(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "deploy.sh")
 	scriptContent := `#!/usr/bin/env bash
-echo "TAG=$DEPLOY_PARAM_TAG"
-echo "REF=$DEPLOY_PARAM_REF"
+echo "TAG=$WEBHOOK_PARAM_TAG"
+echo "REF=$WEBHOOK_PARAM_REF"
 `
 	if err := os.WriteFile(script, []byte(scriptContent), 0o755); err != nil {
 		t.Fatal(err)

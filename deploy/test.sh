@@ -11,8 +11,8 @@
 # How it works:
 #   Each KEY=VALUE argument becomes a JSON field in the webhook payload.
 #   webhook-action injects every field into the deploy script's environment as
-#   DEPLOY_PARAM_<KEY> (uppercased), so `tag=v1.2.3` arrives in deploy.sh as
-#   $DEPLOY_PARAM_TAG.
+#   WEBHOOK_PARAM_<KEY> (uppercased), so `tag=v1.2.3` arrives in deploy.sh as
+#   $WEBHOOK_PARAM_TAG.
 #
 # Overrides:
 #   SECRET=...  URL=http://host:9000/action/webhook ./deploy/test.sh tag=v1.2.3
@@ -33,7 +33,7 @@ parts=()
 for kv in "$@"; do parts+=("\"${kv%%=*}\":\"${kv#*=}\""); done
 body="{$(IFS=,; echo "${parts[*]}")}"
 echo "-> POST $URL"
-echo "-> payload: $body (deploy.sh receives DEPLOY_PARAM_* for each field)"
+echo "-> payload: $body (deploy.sh receives WEBHOOK_PARAM_* for each field)"
 
 sig="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')"
 curl -i -X POST "$URL" \

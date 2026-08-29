@@ -1,5 +1,5 @@
 // Package main 實作小型 GitHub webhook 接收器：以 HMAC-SHA256 驗證
-// X-Hub-Signature-256，將 payload 動態轉為 DEPLOY_PARAM_* 環境變數，
+// X-Hub-Signature-256，將 payload 動態轉為 WEBHOOK_PARAM_* 環境變數，
 // 然後非同步執行部署腳本。
 package main
 
@@ -27,9 +27,9 @@ type server struct {
 
 func main() {
 	webhookSecret := os.Getenv("WEBHOOK_SECRET")
-	deployScript := os.Getenv("DEPLOY_SCRIPT_PATH")
+	deployScript := os.Getenv("WEBHOOK_SCRIPT_PATH")
 	if webhookSecret == "" || deployScript == "" {
-		log.Fatal("錯誤: 請設定 WEBHOOK_SECRET 和 DEPLOY_SCRIPT_PATH 環境變數")
+		log.Fatal("錯誤: 請設定 WEBHOOK_SECRET 和 WEBHOOK_SCRIPT_PATH 環境變數")
 	}
 
 	listenAddr := os.Getenv("LISTEN_ADDR")
@@ -123,9 +123,9 @@ func executeDeploy(script string, params map[string]interface{}) {
 	// 先抓取 VPS 系統原本的環境變數
 	envMapping := os.Environ()
 
-	// 動態把 JSON 裡面的所有欄位轉換成大寫的環境變數（例如：tag -> DEPLOY_PARAM_TAG）
+	// 動態把 JSON 裡面的所有欄位轉換成大寫的環境變數（例如：tag -> WEBHOOK_PARAM_TAG）
 	for key, value := range params {
-		envKey := fmt.Sprintf("DEPLOY_PARAM_%s", strings.ToUpper(key))
+		envKey := fmt.Sprintf("WEBHOOK_PARAM_%s", strings.ToUpper(key))
 		envValue := fmt.Sprintf("%v", value) // 強制轉為字串
 		envMapping = append(envMapping, envKey+"="+envValue)
 		log.Printf(" -> 注入環境變數: %s=%s\n", envKey, envValue)
