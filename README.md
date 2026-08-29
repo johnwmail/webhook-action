@@ -83,6 +83,48 @@ Content type should be `application/json`.
 5. Choose the events you want to trigger deploys (custom events work because the
    payload is parsed dynamically).
 
+## Test it with curl
+
+The webhook only accepts requests carrying a valid `X-Hub-Signature-256` header,
+so compute the signature from the exact body you are about to send:
+
+```sh
+SECRET="$(cat ~/.config/webhook-action/webhook-action.env | grep WEBHOOK_SECRET | cut -d= -f2)"
+BODY='{"ref":"refs/tags/v1.2.3","tag":"v1.2.3","actor":"octocat"}'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')"
+
+curl -i -X POST "http://127.0.0.1:9000/action/webhook" \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$BODY"
+```
+
+If a valid signature is supplied, the server replies `200` immediately with
+`Deployment triggered successfully with dynamic params.` while the deploy script
+runs in the background.
+
+A few negative cases to check:
+
+```sh
+# 401 — header missing
+curl -i -X POST "http://127.0.0.1:9000/action/webhook" \
+  -H "Content-Type: application/json" -d '{"tag":"v1.2.3"}'
+
+# 403 — wrong signature
+curl -i -X POST "http://127.0.0.1:9000/action/webhook" \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: sha256=$(printf x | openssl dgst -sha256 -hmac wrong | awk '{print $2}')" \
+  -d '{"tag":"v1.2.3"}'
+
+# 400 — invalid JSON
+BODY='{"tag": "v1.2.3"'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')"
+curl -i -X POST "http://127.0.0.1:9000/action/webhook" \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: $SIG" \
+  -d "$BODY"
+```
+
 ## Deployment
 
 The repo ships a ready-to-use systemd *user* unit and an example env file under
