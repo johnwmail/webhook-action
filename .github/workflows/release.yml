@@ -14,16 +14,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ linux, darwin, windows ]
+        os: [ linux ]
         arch: [ amd64, arm64 ]
     env:
       BINARY_NAME: webhook-action
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -31,14 +31,12 @@ jobs:
       - name: Cross-compile release binaries
         run: |
           mkdir -p dist
-          SUFFIX=""
-          if [ "${{ matrix.os }}" = "windows" ]; then SUFFIX=".exe"; fi
           CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
             go build -trimpath -ldflags "-s -w" \
-              -o "dist/${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch }}${SUFFIX}" .
+              -o "dist/${BINARY_NAME}-${{ matrix.os }}-${{ matrix.arch }}" .
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: binary-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/*
@@ -50,10 +48,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download all binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
@@ -65,7 +63,7 @@ jobs:
           sha256sum * > SHA256SUMS.txt
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
