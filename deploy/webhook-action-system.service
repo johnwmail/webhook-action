@@ -1,0 +1,45 @@
+# systemd SYSTEM (global) unit for webhook-action
+#
+# Use this variant when you want the service managed by the system manager
+# (root, /etc/systemd/system) instead of a per-user manager. It runs as a
+# dedicated system user 'webhook-action'.
+#
+# Setup (adjust the paths to match your actual installation):
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin webhook-action
+#   sudo install -Dm 0755 webhook-action /usr/local/bin/webhook-action
+#   sudo install -Dm 0644 webhook-action-system.service /etc/systemd/system/webhook-action.service
+#   sudo install -Dm 0644 webhook-action.env /etc/webhook-action/webhook-action.env
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now webhook-action
+#
+# Check status / logs:
+#   systemctl status webhook-action
+#   journalctl -u webhook-action -f
+#
+# Delivery point (GitHub webhook target), usually behind a reverse proxy that
+# adds TLS:
+#   http://127.0.0.1:9000/action/webhook
+#
+# Note: do NOT enable both this unit and the per-user unit at the same time on
+# the same port — pick one systemd manager and one LISTEN_ADDR.
+[Unit]
+Description=GitHub Webhook Action Deploy Server
+Documentation=https://docs.github.com/en/webhooks
+
+[Service]
+Type=simple
+User=webhook-action
+Group=webhook-action
+EnvironmentFile=/etc/webhook-action/webhook-action.env
+ExecStart=/usr/local/bin/webhook-action
+Restart=on-failure
+RestartSec=5
+
+# Hardening available now that we run as a system unit.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

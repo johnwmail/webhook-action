@@ -56,7 +56,7 @@ go test -race ./...
 
 ```sh
 WEBHOOK_SECRET=$(openssl rand -hex 32) \
-WEBHOOK_SCRIPT_PATH=/path/to/deploy.sh \
+WEBHOOK_SCRIPT_PATH=/path/to/webhook-action.sh \
 ./webhook-action
 ```
 
@@ -127,8 +127,8 @@ curl -i -X POST "http://127.0.0.1:9000/action/webhook" \
 
 ## Deployment
 
-The repo ships a ready-to-use systemd *user* unit and an example env file under
-[`deploy/`](deploy/):
+The repo ships a ready-to-use systemd *user* unit, a system-wide variant, and an
+example env file under [`deploy/`](deploy/):
 
 ```sh
 install -Dm 0644 deploy/webhook-action.service ~/.config/systemd/user/webhook-action.service
@@ -150,13 +150,30 @@ systemctl --user status webhook-action
 journalctl --user -u webhook-action -f
 ```
 
+### System-wide (systemd system manager)
+
+Prefer a global service (e.g. its own `webhook-action` system user). Follow the setup
+steps in [`deploy/webhook-action-system.service`](deploy/webhook-action-system.service)
+and point its `EnvironmentFile`/`ExecStart` at your real paths:
+
+```sh
+sudo install -Dm 0755 webhook-action /usr/local/bin/webhook-action
+sudo install -Dm 0644 deploy/webhook-action-system.service /etc/systemd/system/webhook-action.service
+sudo install -Dm 0644 deploy/webhook-action.env /etc/webhook-action/webhook-action.env
+sudo systemctl daemon-reload
+sudo systemctl enable --now webhook-action
+```
+
+Run only **one** of the two (user vs. system) at a time — they must not bind the
+same `LISTEN_ADDR`.
+
 The service binds to localhost only, so place it behind a reverse proxy
 (nginx/caddy) that terminates TLS on remote hosts. See
 [`deploy/webhook-action.service`](deploy/webhook-action.service) for a template.
 
 On every valid delivery, the payload fields are injected into the script
-environment as `WEBHOOK_PARAM_*` variables. An example script lives at
-[`deploy/deploy.sh`](deploy/deploy.sh).
+environment as `WEBHOOK_PARAM_*` variables. A minimal starting point you can
+copy is [`deploy/webhook-action.sh`](deploy/webhook-action.sh).
 
 ### Trigger from another repo with GitHub Actions
 
