@@ -23,6 +23,13 @@ type server struct {
 	secret       string
 	deployScript string
 	runDeploy    func(params map[string]interface{})
+	debug        bool
+}
+
+// isDebugEnabled 判斷是否啟用 DEBUG 模式，支援多種常見真值。
+func isDebugEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("DEBUG")))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
 func main() {
@@ -41,11 +48,14 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              listenAddr,
-		Handler:           s.routes(),
+		Handler:           s.loggingMiddleware(s.routes()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	log.Printf("動態 Webhook 伺服器已啟動，監聽於 http://%s/action/webhook\n", listenAddr)
+	if s.debug {
+		log.Println("[DEBUG] DEBUG 模式已啟用：所有請求將被記錄")
+	}
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
@@ -55,6 +65,7 @@ func newServer(secret, deployScript string) *server {
 	return &server{
 		secret:       secret,
 		deployScript: deployScript,
+		debug:        isDebugEnabled(),
 		runDeploy: func(params map[string]interface{}) {
 			executeDeploy(deployScript, params)
 		},
@@ -67,7 +78,48 @@ func (s *server) routes() http.Handler {
 	return mux
 }
 
+// loggingResponseWriter 包裝 ResponseWriter 以捕捉狀態碼與寫入位元組數。
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (w *loggingResponseWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *loggingResponseWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.bytes += n
+	return n, err
+}
+
+// loggingMiddleware 為每個請求記錄存取日誌，僅在 DEBUG 啟用時生效。
+func (s *server) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.debug {
+			next.ServeHTTP(w, r)
+			return
+		}
+		start := time.Now()
+		lw := &loggingResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(lw, r)
+		duration := time.Since(start)
+		log.Printf("[DEBUG] %s %s %s -> %d %dB %s UA:%q",
+			r.RemoteAddr, r.Method, r.URL.Path, lw.status, lw.bytes, duration, r.UserAgent())
+	})
+}
+
 func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.debug {
+		log.Printf("[DEBUG] webhook 請求: method=%s path=%s remote=%s contentLength=%d",
+			r.Method, r.URL.Path, r.RemoteAddr, r.ContentLength)
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
@@ -88,6 +140,10 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	gotSignature := strings.TrimPrefix(signatureHeader, "sha256=")
 
+	if s.debug {
+		log.Printf("[DEBUG] webhook 簽名驗證: body=%dB sigPrefix=%.8s", len(body), gotSignature)
+	}
+
 	if !verifySignature(body, gotSignature, s.secret) {
 		http.Error(w, "Invalid Signature", http.StatusForbidden)
 		log.Println("警告: 收到無效的簽名請求！")
@@ -99,6 +155,10 @@ func (s *server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &dynamicPayload); err != nil {
 		http.Error(w, "Bad Request (Invalid JSON)", http.StatusBadRequest)
 		return
+	}
+
+	if s.debug {
+		log.Printf("[DEBUG] webhook payload 已解析: keys=%d", len(dynamicPayload))
 	}
 
 	// 轉發給非同步部署程序
@@ -128,7 +188,9 @@ func executeDeploy(script string, params map[string]interface{}) {
 		envKey := fmt.Sprintf("WEBHOOK_PARAM_%s", strings.ToUpper(key))
 		envValue := fmt.Sprintf("%v", value) // 強制轉為字串
 		envMapping = append(envMapping, envKey+"="+envValue)
-		log.Printf(" -> 注入環境變數: %s=%s\n", envKey, envValue)
+		if isDebugEnabled() {
+			log.Printf(" -> 注入環境變數: %s=%s\n", envKey, envValue)
+		}
 	}
 
 	cmd.Env = envMapping
