@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -175,6 +177,43 @@ func verifySignature(payload []byte, gotSignature string, secret string) bool {
 	return hmac.Equal([]byte(gotSignature), []byte(expectedSignature))
 }
 
+// lineLogger 實作 io.Writer：把子程序輸出按行拆分並經 log 輸出，
+// 令每一行都帶上時間戳與來源前綴，方便喺 journalctl 睇。
+type lineLogger struct {
+	prefix string
+	mu     sync.Mutex
+	buf    []byte
+}
+
+func (l *lineLogger) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexByte(l.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimRight(string(l.buf[:i]), "\r")
+		l.buf = l.buf[i+1:]
+		if line != "" {
+			log.Printf("%s %s", l.prefix, line)
+		}
+	}
+	return len(p), nil
+}
+
+// flush 輸出緩衝區中無換行符的殘餘內容。
+func (l *lineLogger) flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	line := strings.TrimRight(string(l.buf), "\r\n")
+	l.buf = nil
+	if line != "" {
+		log.Printf("%s %s", l.prefix, line)
+	}
+}
+
 // 💡 【核心修改】動態將 JSON 的 Key 轉為環境變數傳入腳本
 func executeDeploy(script string, params map[string]interface{}) {
 	log.Println("開始執行部署腳本...")
@@ -194,11 +233,18 @@ func executeDeploy(script string, params map[string]interface{}) {
 	}
 
 	cmd.Env = envMapping
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		log.Printf("部署腳本執行失敗: %v\n", err)
+	stdoutLog := &lineLogger{prefix: "[script:out]"}
+	stderrLog := &lineLogger{prefix: "[script:err]"}
+	cmd.Stdout = stdoutLog
+	cmd.Stderr = stderrLog
+
+	runErr := cmd.Run()
+	stdoutLog.flush()
+	stderrLog.flush()
+
+	if runErr != nil {
+		log.Printf("部署腳本執行失敗: %v\n", runErr)
 		return
 	}
 	log.Println("部署腳本執行成功！")

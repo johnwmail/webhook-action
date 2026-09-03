@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -151,27 +150,51 @@ echo "REF=$WEBHOOK_PARAM_REF"
 		"ref": "refs/tags/v1.0.0",
 	}
 
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldStdout := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = oldStdout }()
+	logged := captureLog(func() {
+		executeDeploy(script, params)
+	})
 
-	executeDeploy(script, params)
-	os.Stdout = oldStdout
-	_ = w.Close()
-
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(out)
-	for _, want := range []string{"TAG=v1.0.0", "REF=refs/tags/v1.0.0"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("script output missing %q, got:\n%s", want, got)
+	for _, want := range []string{"[script:out] TAG=v1.0.0", "[script:out] REF=refs/tags/v1.0.0"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log output missing %q, got:\n%s", want, logged)
 		}
+	}
+}
+
+func TestExecuteDeployLogsStderr(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "deploy.sh")
+	scriptContent := `#!/usr/bin/env bash
+echo "to-stdout"
+printf 'to-stderr-no-newline' >&2
+` // stderr 無尾換行，測試 flush 殘餘內容
+	if err := os.WriteFile(script, []byte(scriptContent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	logged := captureLog(func() {
+		executeDeploy(script, map[string]interface{}{})
+	})
+
+	if !strings.Contains(logged, "[script:out] to-stdout") {
+		t.Errorf("log missing stdout line, got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "[script:err] to-stderr-no-newline") {
+		t.Errorf("log missing flushed stderr line, got:\n%s", logged)
+	}
+}
+
+func TestLineLoggerBuffersPartialLines(t *testing.T) {
+	l := &lineLogger{prefix: "[x]"}
+	logged := captureLog(func() {
+		_, _ = l.Write([]byte("hello wo"))
+		_, _ = l.Write([]byte("rld\nsecond"))
+		l.flush()
+	})
+	if !strings.Contains(logged, "[x] hello world") {
+		t.Errorf("跨 Write 的行应被重组，got:\n%s", logged)
+	}
+	if !strings.Contains(logged, "[x] second") {
+		t.Errorf("flush 应输出无换行残余，got:\n%s", logged)
 	}
 }
 
