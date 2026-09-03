@@ -26,7 +26,9 @@ if [ "$#" -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 fi
 
 URL="${URL:-http://127.0.0.1:9000/action/webhook}"
-SECRET="${SECRET:-$(sed -n 's/^WEBHOOK_SECRET=//p' "$HOME/.config/webhook-action/webhook-action.env")}"
+# Strip surrounding quotes: systemd's EnvironmentFile removes them too, so the
+# running server always verifies against the *unquoted* value.
+SECRET="${SECRET:-$(sed -n 's/^WEBHOOK_SECRET=//p' "$HOME/.config/webhook-action/webhook-action.env" | head -n1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")}"
 [ -n "${SECRET}" ] || { echo "error: set SECRET or WEBHOOK_SECRET in webhook-action.env" >&2; exit 1; }
 
 parts=()
