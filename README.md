@@ -45,6 +45,34 @@ Generate a secret with:
 openssl rand -hex 32
 ```
 
+## Install
+
+### With the Go toolchain
+
+```sh
+go install github.com/johnwmail/webhook-action@latest   # latest tagged release
+go install github.com/johnwmail/webhook-action@v0.0.3   # or pin a version
+```
+
+The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`). Note that
+`go get` is for adding library *dependencies* to your own module — to build and
+install a CLI executable like this one, use `go install`.
+
+### Prebuilt binaries
+
+Each [release](https://github.com/johnwmail/webhook-action/releases) ships
+`webhook-action-linux-amd64` / `webhook-action-linux-arm64` plus `SHA256SUMS.txt`:
+
+```sh
+curl -sLO https://github.com/johnwmail/webhook-action/releases/download/v0.0.3/webhook-action-linux-amd64
+sha256sum -c <(curl -sL https://github.com/johnwmail/webhook-action/releases/download/v0.0.3/SHA256SUMS.txt | grep linux-amd64)
+install -m 0755 webhook-action-linux-amd64 ~/bin/webhook-action
+```
+
+### From source
+
+See [Build & test](#build--test) below.
+
 ## Build & test
 
 ```sh
@@ -89,7 +117,9 @@ The webhook only accepts requests carrying a valid `X-Hub-Signature-256` header,
 so compute the signature from the exact body you are about to send:
 
 ```sh
-SECRET="$(cat ~/.config/webhook-action/webhook-action.env | grep WEBHOOK_SECRET | cut -d= -f2)"
+# tr -d '"' strips surrounding quotes: systemd's EnvironmentFile removes them,
+# so the running server verifies against the *unquoted* value.
+SECRET="$(sed -n 's/^WEBHOOK_SECRET=//p' ~/.config/webhook-action/webhook-action.env | tr -d '"')"
 BODY='{"ref":"refs/tags/v1.2.3","tag":"v1.2.3","actor":"octocat"}'
 SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')"
 
